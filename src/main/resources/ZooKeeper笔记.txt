@@ -1,0 +1,186 @@
+ZooKeeper 是一个开源的分布式协调服务，由雅虎创建，是 Google Chubby 的开源实现。 
+	分布式应用程序可以基于 ZooKeeper 实现诸如数据发布/订阅、负载均衡、命名服务、
+	分布式协 调/通知、集群管理、Master 选举、配置维护，名字服务、分布式同步、分布式锁和分布式队列 等功能。
+
+ZooKeeper主要目录结构：
+	bin：主要的一些运行命令。
+	conf：存放配置文件，其中我们要修改zk.cfg
+	contrib：附加的一些功能
+	dist-maven：maven编译后的目录
+	doc： 文档
+	lib： 需要依赖的jar包
+	recipes：案例demo代码
+	src：源码
+	
+zoo.cof的配置：
+	tickTime：	用于计算时间单元。比如session超时：N*tickTime
+	initLimit：	用于集群，允许从节点连接到master节点的初始化连接时间，以tickTime的倍数来表示
+	syncLimit：	用于集群，master主节点之间发送消息，请求和应答时间长度。（心跳机制）
+	dataDir：	必须配置
+	dataLogDir：日志目录，如果不配置会和dataDir共用
+	clientPort：连接服务器端口，默认2181
+	
+ZooKeeper基本数据模型
+	1、是个树形结构，类似于前端开发中的tree.js组件
+	2、zk数据模型也可以理解为Linux/unix的文件的目录：/user/local/...
+	3、每个节点都称之为znode，它可以有子节点，也存储数据
+	4、每个节点分为临时节点和永久节点，临时节点在客户端断开后消失
+	5、每个zk节点都有各自的版本号，可以通过命令行来显示节点信息
+	6、每当节点数据发生变化，那么该节点的版本号会累加（乐观锁）
+	7、删除/修改过时的节点，版本号不匹配则会报错
+	8、每个zk节点存储的数据不宜过大，几k即可
+	9、节点可以设置权限acl，可以通过权限来限制用户的访问
+	
+ZooKeeper数据模型基本操作
+	./zkServer.sh restart 启动服务
+	./zkCli.sh            用客户端进行连接
+	
+zk的作用体现：
+	1、master节点选举，直接点挂了以后，从节点就会接手，并且保证这个节点唯一的，这也是所谓的首脑模式，
+	从而保证我们的集群是高可用的
+	2、统一配置文件管理，即只需要部署一台服务器，则可以把相同的配置文件同步到所有服务器，此操作在云
+	计算中用的特别多。
+	3、发布与订阅，类似消息队列MQ（amp，rmp..），dubo发布者把数据存在anode上，订阅者会读取这个数据
+	4、提供分布式锁，分布式环境中不同进程之间争夺资源，类似于多线程
+	5、集群管理，集群中保证数据的强一致性
+	
+zk常用命令：
+	ls命令：指定目录下的目录列表
+	ls2命令：指定目录下的目录列表和状态信息
+	stst命令：指定目录状态信息
+	get命令：把当前指定目录/节点里的数据取出来
+	//创建临时节点create -e ..
+	
+zk特性-session的基本原理
+	客户端与服务端之间的连接处在会话
+	每个会话都会可以设置一个超时时间
+	心跳结束，session则过期
+	session过期，则临时节点znode会被抛弃
+	心跳机制：客户端向服务端的ping包的请求
+
+zk常用的命令行操作
+	1、creat命令   creat [-s] [-e] path data acl
+	2、set命令     set path data [version]
+	
+ACL（access control lists）权限控制
+	针对节点可以设置相关读写等权限，目的保障数据安全性
+	权限permissions可以指定不同的权限范围以及角色
+	
+ACL的构成
+	zk的acl通过[scheme：id：permissions]来构成权限列表
+		scheme:代表采用的某种权限机制
+		id：代表永许访问的用户
+		permissions：权限组合字符串
+
+ACL的构成-scheme：
+	worId：我让ID下只有一个id，即只有一个用户，也就是anyone，那么组合的写法是worId：anyone：[permissions]
+	auth：代表认证登录，需要注册用户有权限就可以了，形式为auth:password:[permissions]
+	digest:需要对密码加密才能访问，组合形式为digest:username:BASE64(SHA1(password))):[permissions]
+		简而言之，auth与digest的区别就是，前者明文，后者密文 setAcl /path auth：lee：Lee：cdrwa
+		与setAcl /path digest：lee：BASE64(SHA1(password))cdrwa是等价的，在通过addauth digest Lee：lee后都能操作指定节点的权限
+	ip:当设置为ip指定的ip地址，此时限制ip进行访问，比如ip：192.168.1.1:[permissions]
+	
+
+ACL的构成-permissions：
+	权限字符串缩写crdwa
+		CREATE:创建子节点  	READ:获取节点/子节点
+		WRITE:设置节点数据	DELETE:删除子节点	ADMIN:设置权限
+	
+ACL命令行学习：
+	1、world：anyone：cdrwa
+	2、auth：user：pwd：cdrwa 
+	   digest：user：BASE64(SHA1(pwd))：cdrwa
+	   addauth digest user：pwd 进行用户注册/登录 输入认证授权信息，注册输入明文密码（登录）但是在zk的系统里，密码是以加密的形式存在的
+	3、ip：192.168.1.1：cdrwa
+	4、Super 1、修改zkServer.sh增加supper管理员 2、重启zkServer
+		super：代表超级管理员，拥有所有的权限 
+		//先对zkServer.sh文件进行修改在nohup "$JAVA" "-Dzookeeper.log.dir=${ZOO_LOG_DIR}" "-Dzookeeper.root.logger=${ZOO_LOG4J_PROP}"
+		后加"-Dzookeeper.DigestAuthenticationProvider.superDigest=username:BASE64(SHA1(password)))="
+	5、getAcl：获取某个节点的acl权限信息
+	6、setAcl：设置某个节点的acl权限信息
+	
+ACL的使用场景：
+	1、开发/测试环境分离，开发者无权操作测试库的节点，只能看
+	2、生产环境上控制指定ip的服务可以访问相关节点，防止混乱
+	
+zk四字命令Four Letter Words
+	1、zk可以通过它自身提供的简写命令来和服务器进行交互
+	2、需要使用到nc命令，安装：yum：install nc
+	3、echo [commond] | nc [ip] [port]
+
+ZooKeeper四字命令：
+	1、[stat]  查看zk的状态信息，以及是否mode
+	2、[ruok]  查看当前zkserver是否启动，返回imok
+	3、[dump]  列出未经过处理的会话和临时节点
+	4、[cons]  展示连接到服务器的客户端信息
+	5、[conf]  查看服务器配置
+	6、[envi]  环境变量
+	7、[mmntr] 监控zk健康信息
+	8、[wchs]  展示watch的信息
+	9、[wchc]与[wchp] session与watch及path与watch信息
+		注意要在zoo.cfg中配置 在其中加入4lw.commands.whitelist=*
+
+zk特性-watcher机制
+	1、针对每个节点的操作，都会有一个监督者-wathcer
+	2、当监控的某个对象（znodr）发生变化，则触发watcher事件
+	3、zk中的watcher是一次性的，出发后立即销毁
+	4、父节点，子节点增删改都能够触发watcher
+	5、针对不同类型的操作，触发的watcher事件也不同
+		1、（子）节点创建事件
+		2、（子）节点删除事件
+		3、（子）节点数据变化事件
+		
+watcher命令行学习
+	通过get path [watch] //设置watcher  stat 也可以设置
+	父节点增删改操作触发watcher
+	子节点增删改操作触发watcher
+	
+watcher事件类型
+	创建父节点触发：NodeCreated
+	修改父节点触发：NodeDataChanged
+	删除父节点触发：NodeDeleted
+	
+	ls为父节点设置watcher，创建子节点触发：NodeChildrenChange //ls /ad watch
+	ls为父节点设置watcher，删除子节点触发：NodeChildrenChanged
+	ls为父节点设置watcher，修改子节点不触发事件
+	
+watcher使用场景
+	统一资源配置
+	
+二、zookeeper集群搭建
+	zk集群，主从节点，心跳机制（选举模式）
+		选举模式：最少有一个主节点和两个从节点，如果主节点挂了，两个从节点相互竞争替代主节点，原来的主节点修复好了，就降一级成为子节点
+
+zookeeper集群搭建注意点
+	1、配置数据文件myid 1/2/3 对应server.1/2/3
+	2、通过./zkCli.sh -server [ip]:[port]检测集群是否配置成功
+
+伪分布式系统的搭建：就在一台机子上搭建。
+	
+zookeeper真实环境集群搭建
+	需要注意：环境变量的配置，ip配置不同，端口号可以相同
+	
+	
+	
+CountDownLatch的使用
+	它是一个计数器
+	多用于线程，可以暂停也可以继续
+	.await()阻塞当前线程        .countDown()
+	
+
+常用的zk java客户端
+	zk原生的api      zkClient      Apache curator
+	
+	zk原生api不足之处：
+		超时连接，不支持自动，需要手动操作
+		Watch注册一次后失效
+		不支持递归创建节点
+	
+	Apache curator
+		Apache开源项目。
+		解决watcher的注册一次就失效。
+		Api更加简单易用。
+		提供更多的解决方案并且实现简单：比如 分布式锁。
+		提供常用的ZooKeeper工具类。
+		编程风格更爽。
+	
